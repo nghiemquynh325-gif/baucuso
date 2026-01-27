@@ -1,0 +1,32 @@
+// Replace lines 445-448 in CandidateList.tsx with this code:
+
+             <div className="space-y-3">
+                <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Danh sách ứng cử viên</h1>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Quản lý và cập nhật thông tin ứng cử viên Hội đồng Nhân dân các cấp.</p>
+                
+                {/* Candidate Count Statistics */}
+                <div className="flex items-center gap-3">
+                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tổng số:</span>
+                   <div className="flex items-center gap-2">
+                      <div className="px-3 py-1.5 bg-emerald-100 border border-emerald-200 rounded-lg flex items-center gap-2">
+                         <span className="material-symbols-outlined text-emerald-600 text-sm">how_to_vote</span>
+                         <span className="text-xs font-black text-emerald-800">HĐND Phường: {candidates.filter(c => c.level === 'phuong').length}</span>
+                      </div>
+                      <div className="px-3 py-1.5 bg-indigo-100 border border-indigo-200 rounded-lg flex items-center gap-2">
+                         <span className="material-symbols-outlined text-indigo-600 text-sm">account_balance</span>
+                         <span className="text-xs font-black text-indigo-800">Thành phố: {candidates.filter(c => c.level === 'thanh-pho').length}</span>
+                      </div>
+                      <div className="px-3 py-1.5 bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-2">
+                         <span className="material-symbols-outlined text-amber-600 text-sm">flag</span>
+                         <span className="text-xs font-black text-amber-800">Quốc hội: {candidates.filter(c => c.level === 'quoc-hoi').length}</span>
+                      </div>
+                   </div>
+                </div>
+             </div>
+
+// INSTRUCTIONS:
+// 1. Open CandidateList.tsx
+// 2. Find line 445: <div className="space-y-1">
+// 3. Change "space-y-1" to "space-y-3"
+// 4. After line 447 (the <p> tag), add the new statistics section shown above
+// 5. The closing </div> stays at line 448

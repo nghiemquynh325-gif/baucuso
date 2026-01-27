@@ -32,6 +32,7 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
     // Main Filters (Luôn hiển thị)
     const [filterVoting, setFilterVoting] = useState('all');
     const [filterArea, setFilterArea] = useState('all');
+    const [filterCardNumber, setFilterCardNumber] = useState('');
 
     // Advanced Filters (Ẩn/Hiện)
     const [filterNeighborhood, setFilterNeighborhood] = useState('all');
@@ -70,8 +71,9 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
     }, [filterUnit]);
 
     useEffect(() => {
-        // Khi thay đổi KVBP, reset Tổ
+        // Khi thay đổi KVBP, reset Tổ và Số thẻ
         setFilterGroup('');
+        setFilterCardNumber('');
     }, [filterArea]);
 
     // --- FILTER OPTIONS COMPUTATION ---
@@ -140,7 +142,7 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
         return () => { supabase.removeChannel(sub); };
     }, [filterNeighborhood, filterUnit, filterArea, filterGroup, filterResidence, filterVoting]);
 
-    useEffect(() => { setCurrentPage(1); }, [searchTerm, filterNeighborhood, filterUnit, filterArea, filterGroup, filterResidence, filterVoting]);
+    useEffect(() => { setCurrentPage(1); }, [searchTerm, filterNeighborhood, filterUnit, filterArea, filterGroup, filterResidence, filterVoting, filterCardNumber]);
 
     const fetchVoters = async () => {
         setLoading(true);
@@ -265,16 +267,27 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
 
     // --- CLIENT-SIDE FILTERING (SEARCH) ---
     const filteredVoters = useMemo(() => {
-        const search = searchTerm.toLowerCase().trim();
-        if (!search) return voters;
+        let result = voters;
 
-        return voters.filter(v => {
-            if (v.name.toLowerCase().includes(search)) return true;
-            if (v.cccd?.includes(search)) return true;
-            if (v.voterCardNumber?.toLowerCase().includes(search)) return true;
-            return false;
-        });
-    }, [voters, searchTerm]);
+        // Apply card number filter first
+        if (filterCardNumber.trim()) {
+            const cardSearch = filterCardNumber.toLowerCase().trim();
+            result = result.filter(v => v.voterCardNumber?.toLowerCase().includes(cardSearch));
+        }
+
+        // Then apply search term
+        const search = searchTerm.toLowerCase().trim();
+        if (search) {
+            result = result.filter(v => {
+                if (v.name.toLowerCase().includes(search)) return true;
+                if (v.cccd?.includes(search)) return true;
+                if (v.voterCardNumber?.toLowerCase().includes(search)) return true;
+                return false;
+            });
+        }
+
+        return result;
+    }, [voters, searchTerm, filterCardNumber]);
 
     const paginatedVoters = filteredVoters.slice(
         (currentPage - 1) * ITEMS_PER_PAGE,
@@ -344,6 +357,20 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
                             <option value="all">-- Tất cả KVBP --</option>
                             {AN_PHU_LOCATIONS.filter(l => l.type === 'area').map(a => <option key={a.id} value={a.id}>{a.id.toUpperCase()} - {a.locationDetail || a.name}</option>)}
                         </select>
+
+                        {/* Card Number Filter - Appears after selecting area */}
+                        {filterArea !== 'all' && (
+                            <div className="relative animate-in slide-in-from-left-2 fade-in">
+                                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">badge</span>
+                                <input
+                                    type="text"
+                                    placeholder="Lọc theo số thẻ..."
+                                    value={filterCardNumber}
+                                    onChange={e => setFilterCardNumber(e.target.value)}
+                                    className="h-10 pl-9 pr-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-amber-300 transition-all min-w-[140px]"
+                                />
+                            </div>
+                        )}
 
                         {/* Advanced Filter Toggle */}
                         <button

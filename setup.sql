@@ -466,6 +466,8 @@ FOR INSERT WITH CHECK (
 -- --- CANDIDATES ---
 DROP POLICY IF EXISTS "Admins can manage candidates" ON candidates;
 DROP POLICY IF EXISTS "Authenticated users can view candidates" ON candidates;
+DROP POLICY IF EXISTS "Data entry can update candidates" ON candidates;
+DROP POLICY IF EXISTS "Data entry can insert candidates" ON candidates;
 DROP POLICY IF EXISTS "Allow all candidates" ON candidates;
 
 CREATE POLICY "Admins can manage candidates" ON candidates 
@@ -473,6 +475,34 @@ FOR ALL USING (is_admin());
 
 CREATE POLICY "Authenticated users can view candidates" ON candidates 
 FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Data entry can update candidates" ON candidates 
+FOR UPDATE USING (
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.role IN ('nhap_lieu', 'to_bau_cu', 'ban_chi_dao', 'admin_phuong')
+    AND profiles.status = 'active'
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.role IN ('nhap_lieu', 'to_bau_cu', 'ban_chi_dao', 'admin_phuong')
+    AND profiles.status = 'active'
+  )
+);
+
+CREATE POLICY "Data entry can insert candidates" ON candidates 
+FOR INSERT WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.role IN ('nhap_lieu', 'to_bau_cu', 'ban_chi_dao', 'admin_phuong')
+    AND profiles.status = 'active'
+  )
+);
 
 -- --- AREA_STATS ---
 DROP POLICY IF EXISTS "Admins can manage area_stats" ON area_stats;
@@ -495,6 +525,15 @@ FOR SELECT USING (
 
 CREATE POLICY "Scope-based area_stats update" ON area_stats 
 FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.role IN ('nhap_lieu', 'to_bau_cu')
+    AND profiles.area_id = area_stats.area_id
+    AND profiles.status = 'active'
+  )
+)
+WITH CHECK (
   EXISTS (
     SELECT 1 FROM profiles 
     WHERE profiles.id = auth.uid() 
@@ -525,6 +564,15 @@ FOR SELECT USING (
 
 CREATE POLICY "Scope-based voting_results update" ON voting_results 
 FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.role IN ('nhap_lieu', 'to_bau_cu')
+    AND profiles.area_id = voting_results.area_id
+    AND profiles.status = 'active'
+  )
+)
+WITH CHECK (
   EXISTS (
     SELECT 1 FROM profiles 
     WHERE profiles.id = auth.uid() 

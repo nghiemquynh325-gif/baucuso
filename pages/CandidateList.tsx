@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { AN_PHU_LOCATIONS } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { useNotification } from '../contexts/NotificationContext';
@@ -442,9 +442,29 @@ export const CandidateList: React.FC<{ isLargeText?: boolean }> = ({ isLargeText
 
          {/* HEADER SECTION */}
          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-            <div className="space-y-1">
+
+            <div className="space-y-3">
                <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Danh sách ứng cử viên</h1>
                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Quản lý và cập nhật thông tin ứng cử viên Hội đồng Nhân dân các cấp.</p>
+
+               {/* Candidate Count Statistics */}
+               <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tổng số:</span>
+                  <div className="flex items-center gap-2">
+                     <div className="px-3 py-1.5 bg-emerald-100 border border-emerald-200 rounded-lg flex items-center gap-2">
+                        <span className="material-symbols-outlined text-emerald-600 text-sm">how_to_vote</span>
+                        <span className="text-xs font-black text-emerald-800">HĐND Phường: {candidates.filter(c => c.level === 'phuong').length}</span>
+                     </div>
+                     <div className="px-3 py-1.5 bg-indigo-100 border border-indigo-200 rounded-lg flex items-center gap-2">
+                        <span className="material-symbols-outlined text-indigo-600 text-sm">account_balance</span>
+                        <span className="text-xs font-black text-indigo-800">Thành phố: {candidates.filter(c => c.level === 'thanh-pho').length}</span>
+                     </div>
+                     <div className="px-3 py-1.5 bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-2">
+                        <span className="material-symbols-outlined text-amber-600 text-sm">flag</span>
+                        <span className="text-xs font-black text-amber-800">Quốc hội: {candidates.filter(c => c.level === 'quoc-hoi').length}</span>
+                     </div>
+                  </div>
+               </div>
             </div>
             <div className="flex gap-3">
                <div className="flex p-1 bg-slate-100 rounded-xl mr-2">
@@ -1133,3 +1153,4 @@ export const CandidateList: React.FC<{ isLargeText?: boolean }> = ({ isLargeText
       </div>
    );
 };
+
