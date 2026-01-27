@@ -9,6 +9,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+      workbox: {
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // 3MB
+      },
       manifest: {
         name: 'Bầu cử An Phú 2026',
         short_name: 'BC An Phú',
