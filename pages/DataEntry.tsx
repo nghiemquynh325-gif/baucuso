@@ -3,14 +3,23 @@ import { AN_PHU_LOCATIONS } from '../types';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { createLog } from '../lib/logger';
+import { getDelegateCount } from '../lib/voting';
 
 export const DataEntry: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) => {
   const { profile } = useAuth();
   const [selection, setSelection] = useState({ unit: '', area: '' });
   const [loading, setLoading] = useState(false);
   const [candidates, setCandidates] = useState<any[]>([]);
-  const [generalData, setGeneralData] = useState({ totalVoters: 0, issuedVotes: 0, receivedVotes: 0, validVotes: 0, invalidVotes: 0 });
+  const [generalData, setGeneralData] = useState({
+    totalVoters: 0,
+    issuedVotes: 0,
+    receivedVotes: 0,
+    validVotes: 0,
+    invalidVotes: 0,
+    unvotedVotes: 0
+  });
   const [candidateVotes, setCandidateVotes] = useState<Record<string, number>>({});
+  const [scratchedVotes, setScratchedVotes] = useState<Record<string, number>>({});
   const [isLocked, setIsLocked] = useState(false);
 
   // --- LOGIC: PERMISSION-BASED SCOPE ---
@@ -52,13 +61,14 @@ export const DataEntry: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
         issuedVotes: stats.issued_votes || 0,
         receivedVotes: stats.received_votes || 0,
         validVotes: stats.valid_votes || 0,
-        invalidVotes: stats.invalid_votes || 0
+        invalidVotes: stats.invalid_votes || 0,
+        unvotedVotes: stats.unvoted_votes || 0
       });
       setIsLocked(stats.is_locked);
     } else {
       // Nếu chưa có, đếm số cử tri trong bảng voters
       const { count } = await supabase.from('voters').select('*', { count: 'exact', head: true }).eq('area_id', selection.area);
-      setGeneralData({ totalVoters: count || 0, issuedVotes: 0, receivedVotes: 0, validVotes: 0, invalidVotes: 0 });
+      setGeneralData({ totalVoters: count || 0, issuedVotes: 0, receivedVotes: 0, validVotes: 0, invalidVotes: 0, unvotedVotes: 0 });
       setIsLocked(false);
     }
 
@@ -66,10 +76,16 @@ export const DataEntry: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
     const { data: results } = await supabase.from('voting_results').select('*').eq('area_id', selection.area);
     if (results) {
       const voteMap: Record<string, number> = {};
-      results.forEach(r => voteMap[r.candidate_id] = r.votes);
+      const scratchMap: Record<string, number> = {};
+      results.forEach(r => {
+        voteMap[r.candidate_id] = r.votes;
+        scratchMap[r.candidate_id] = r.scratched_votes || 0;
+      });
       setCandidateVotes(voteMap);
+      setScratchedVotes(scratchMap);
     } else {
       setCandidateVotes({});
+      setScratchedVotes({});
     }
     setLoading(false);
   };
@@ -110,6 +126,7 @@ export const DataEntry: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
         received_votes: generalData.receivedVotes,
         valid_votes: generalData.validVotes,
         invalid_votes: generalData.invalidVotes,
+        unvoted_votes: generalData.unvotedVotes,
         is_locked: lockStatus,
         updated_at: timestamp
       });
@@ -120,7 +137,8 @@ export const DataEntry: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
       const resultsPayload = candidates.map(c => ({
         area_id: selection.area,
         candidate_id: c.id,
-        votes: candidateVotes[c.id] || 0, // Nếu chưa nhập thì mặc định là 0
+        votes: candidateVotes[c.id] || 0,
+        scratched_votes: scratchedVotes[c.id] || 0,
         is_locked: lockStatus,
         updated_at: timestamp
       }));
@@ -183,6 +201,40 @@ export const DataEntry: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
       setLoading(false);
     }
   };
+
+  // HANDLER: Khi nhập phiếu bầu (Thuận)
+  const handleVoteChange = (candidateId: string, value: number) => {
+    setCandidateVotes(prev => ({ ...prev, [candidateId]: value }));
+    // Tính ngược: Bị gạch = Hợp lệ - Bầu
+    const scratch = Math.max(0, generalData.validVotes - value);
+    setScratchedVotes(prev => ({ ...prev, [candidateId]: scratch }));
+  };
+
+  // HANDLER: Khi nhập phiếu bị gạch (Nghịch)
+  const handleScratchedChange = (candidateId: string, value: number) => {
+    setScratchedVotes(prev => ({ ...prev, [candidateId]: value }));
+    // Tính thuận: Bầu = Hợp lệ - Bị gạch
+    const votes = Math.max(0, generalData.validVotes - value);
+    setCandidateVotes(prev => ({ ...prev, [candidateId]: votes }));
+  };
+
+  const totalEnteredVotes = useMemo(() => {
+    return Object.values(candidateVotes).reduce((sum: number, v: number) => sum + v, 0);
+  }, [candidateVotes]);
+
+  const delegates = useMemo(() => {
+    return getDelegateCount(candidates.length);
+  }, [candidates.length]);
+
+  const maxPossibleVotes = useMemo(() => {
+    return generalData.validVotes * delegates;
+  }, [generalData.validVotes, delegates]);
+
+  const isVotesError = useMemo(() => {
+    if (generalData.validVotes === 0) return false;
+    // Cân bằng: Tổng phiếu bầu cho ứng viên + Số phiếu không bầu cho ai = Số phiếu hợp lệ * Số đại biểu
+    return (totalEnteredVotes + generalData.unvotedVotes) !== maxPossibleVotes;
+  }, [totalEnteredVotes, generalData.unvotedVotes, maxPossibleVotes]);
 
   const getLevelBadge = (level: string) => {
     switch (level) {
@@ -268,13 +320,15 @@ export const DataEntry: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
                 { label: 'Phát ra', key: 'issuedVotes' },
                 { label: 'Thu về', key: 'receivedVotes' },
                 { label: 'Hợp lệ', key: 'validVotes' },
-                { label: 'Không hợp lệ', key: 'invalidVotes' }
+                { label: 'K.Hợp lệ', key: 'invalidVotes' },
+                { label: 'Phiếu không bầu cho ai', key: 'unvotedVotes' }
               ].map(item => (
-                <div key={item.key}>
+                <div key={item.key} className={item.key === 'unvotedVotes' ? 'md:col-span-2' : ''}>
                   <label className="text-[10px] font-black uppercase text-slate-400 mb-1 block">{item.label}</label>
                   <input
                     type="number"
                     disabled={isLocked || loading}
+                    placeholder="0"
                     value={(generalData as any)[item.key] || ''}
                     onChange={e => setGeneralData({ ...generalData, [item.key]: parseInt(e.target.value) || 0 })}
                     className={`w-full h-12 border-2 rounded-xl px-4 font-bold focus:border-primary outline-none transition-all ${isLocked ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : 'bg-white'}`}
@@ -285,9 +339,25 @@ export const DataEntry: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
           </div>
 
           <div className={`bg-white p-8 rounded-[2.5rem] border-2 shadow-sm relative ${isLocked ? 'border-admin-red/30' : 'border-slate-100'}`}>
+            {isVotesError && (
+              <div className="absolute inset-0 bg-red-600/5 backdrop-blur-[1px] flex flex-col items-center justify-center p-10 text-center animate-in fade-in duration-300 z-20">
+                <div className="bg-white p-8 rounded-[2rem] border-4 border-admin-red shadow-2xl max-w-lg space-y-4">
+                  <span className="material-symbols-outlined text-6xl text-admin-red animate-bounce">warning</span>
+                  <h3 className="text-2xl font-black uppercase text-admin-red tracking-tight">Cảnh báo: Sai số liệu kiểm phiếu!</h3>
+                  <div className="space-y-2 text-slate-700 font-bold">
+                    <p>Tổng phiếu bầu ứng viên (+ Không bầu): <span className="text-admin-red text-xl">{(totalEnteredVotes + generalData.unvotedVotes).toLocaleString()}</span></p>
+                    <p>Giới hạn phải đạt: {generalData.validVotes.toLocaleString()} (hợp lệ) x {delegates} (đại biểu) = <span className="text-blue-600 text-xl">{maxPossibleVotes.toLocaleString()}</span></p>
+                    <p className="text-sm italic font-medium text-slate-500 mt-4 leading-relaxed tracking-normal bg-slate-50 p-4 rounded-xl">
+                      * Nguyên tắc cân bằng: (Tổng phiếu các ứng viên) + (Số phiếu không bầu cho ai) = (Số phiếu hợp lệ) x (Số đại biểu được bầu).
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             <h2 className="text-lg font-black uppercase border-b pb-4 mb-6 flex items-center gap-2">
               Phần III: Kết quả ứng viên
               {isLocked && <span className="px-2 py-0.5 bg-admin-red text-white text-[9px] rounded-full">READ-ONLY</span>}
+              {!isLocked && isVotesError && <span className="px-2 py-0.5 bg-admin-red text-white text-[9px] rounded-full animate-pulse ml-auto">PHÁT HIỆN SAI SỐ LIỆU</span>}
             </h2>
             {candidates.length === 0 ? (
               <div className="text-center py-10 text-slate-400 font-bold italic">Chưa có danh sách ứng cử viên cho đơn vị này.</div>
@@ -298,20 +368,31 @@ export const DataEntry: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
                     <th className="py-4">Ứng cử viên</th>
                     <th className="py-4 text-center">Loại hình</th>
                     <th className="py-4 text-right">Số phiếu bầu</th>
+                    <th className="py-4 text-right pr-4">Số phiếu BỊ GẠCH</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {candidates.map(c => (
                     <tr key={c.id}>
-                      <td className="py-4 font-black uppercase text-slate-800">{c.name}</td>
+                      <td className="py-4 font-black uppercase text-slate-800 text-xs">{c.name}</td>
                       <td className="py-4 text-center">{getLevelBadge(c.level)}</td>
                       <td className="py-4">
                         <input
                           type="number"
                           disabled={isLocked || loading}
                           value={candidateVotes[c.id] !== undefined ? candidateVotes[c.id] : ''}
-                          onChange={e => setCandidateVotes({ ...candidateVotes, [c.id]: parseInt(e.target.value) || 0 })}
-                          className={`w-32 h-10 border-2 rounded-lg text-right px-3 font-bold ml-auto block focus:border-primary outline-none transition-all ${isLocked ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : 'bg-white'}`}
+                          onChange={e => handleVoteChange(c.id, parseInt(e.target.value) || 0)}
+                          className={`w-28 h-10 border-2 rounded-lg text-right px-3 font-bold ml-auto block focus:border-indigo-500 outline-none transition-all ${isLocked ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : 'bg-emerald-50 border-emerald-100 text-emerald-700'}`}
+                          placeholder="0"
+                        />
+                      </td>
+                      <td className="py-4">
+                        <input
+                          type="number"
+                          disabled={isLocked || loading}
+                          value={scratchedVotes[c.id] !== undefined ? scratchedVotes[c.id] : ''}
+                          onChange={e => handleScratchedChange(c.id, parseInt(e.target.value) || 0)}
+                          className={`w-28 h-10 border-2 rounded-lg text-right px-3 font-bold ml-auto block focus:border-red-500 outline-none transition-all ${isLocked ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : 'bg-red-50 border-red-100 text-red-700'}`}
                           placeholder="0"
                         />
                       </td>
