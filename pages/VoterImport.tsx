@@ -24,6 +24,11 @@ interface ParsedVoter {
   area_id: string;
   voting_status: string;
   residence_status: string;
+  permanent_address?: string;
+  temporary_address?: string;
+  vote_qh: boolean;
+  vote_t: boolean;
+  vote_p: boolean;
 }
 
 interface FailedRecord {
@@ -132,9 +137,49 @@ export const VoterImport: React.FC<VoterImportProps> = ({ onBack, isLargeText })
       let processedCount = 0;
       let skippedCount = 0;
 
-      lines.forEach((line, index) => {
+      let currentDetectedAreaId = 'kv01'; // Default
+
+      // MỚI: KẾT HỢP CÁC DÒNG BỊ NGẮT (Hỗ trợ copy từ PDF hoặc các bảng bị wrap)
+      const combinedLines: string[] = [];
+      let currentBuffer = "";
+      lines.forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+
+        // Header Khu vực (Chỉ nhận diện nếu là dòng riêng biệt hoặc bắt đầu bằng tiền tố chuẩn)
+        const isAreaHeader = trimmed.match(/^\s*(?:Khu vực|KVBP|KV)\s*(?:bỏ phiếu\s*)?(?:số\s*)?[:\s]*(\d+)\s*$/i);
+        // Dòng dữ liệu mới thường bắt đầu bằng STT (Số)
+        const isNewRecord = /^\d+/.test(trimmed);
+
+        if (isAreaHeader) {
+          if (currentBuffer) combinedLines.push(currentBuffer);
+          combinedLines.push(trimmed);
+          currentBuffer = "";
+        } else if (isNewRecord) {
+          if (currentBuffer) combinedLines.push(currentBuffer);
+          currentBuffer = trimmed;
+        } else {
+          if (currentBuffer) {
+            currentBuffer += " " + trimmed;
+          } else {
+            combinedLines.push(trimmed);
+          }
+        }
+      });
+      if (currentBuffer) combinedLines.push(currentBuffer);
+
+      combinedLines.forEach((line, index) => {
         const trimmedLine = line.trim();
-        if (!trimmedLine) return; // Skip empty lines
+        if (!trimmedLine) return;
+
+        // --- NHẬN DIỆN DIỆN KHU VỰC BỎ PHIẾU TỪ TIÊU ĐỀ (Strict hơn) ---
+        const areaHeaderMatch = trimmedLine.match(/^\s*(?:Khu vực|KV|KVBP)\s*(?:bỏ phiếu\s*)?(?:số\s*)?[:\s]*(\d+)\s*$/i);
+        if (areaHeaderMatch) {
+          const num = areaHeaderMatch[1].padStart(2, '0');
+          currentDetectedAreaId = `kv${num}`;
+          addLog(`>>> PHÁT HIỆN KHU VỰC: ${num} (ID: ${currentDetectedAreaId})`, 'info');
+          return;
+        }
 
         // Skip header lines likely containing keywords
         if (
@@ -143,7 +188,8 @@ export const VoterImport: React.FC<VoterImportProps> = ({ onBack, isLargeText })
           trimmedLine.includes('Tổng số') ||
           trimmedLine.includes('Người lập biểu') ||
           trimmedLine.includes('Danh sách này được lập') ||
-          trimmedLine.includes('Cử tri tham gia bầu cử')
+          trimmedLine.includes('Cử tri tham gia bầu cử') ||
+          trimmedLine.match(/^\(\d+\)\s*$/) // Skip lines like (1), (2)... nếu nó đứng một mình
         ) {
           return;
         }
@@ -151,10 +197,79 @@ export const VoterImport: React.FC<VoterImportProps> = ({ onBack, isLargeText })
         processedCount++;
 
         // --- BÓC TÁCH DỮ LIỆU ---
-        // Cấu trúc mong đợi: 
-        // STT | Họ tên | Ngày sinh | Nam/Nữ | CCCD | Dân tộc | Cư trú | Địa chỉ | KV | Tổ | Khu phố
 
-        // 1. Tìm CCCD (Chuỗi 9-12 số) - Điểm neo quan trọng
+        // KIỂM TRA ĐỊNH DẠNG TAB (COPY TỪ EXCEL)
+        if (trimmedLine.includes('\t')) {
+          const cols = trimmedLine.split('\t').map(c => c.trim());
+          if (cols.length >= 7) {
+            // Cấu trúc chuẩn (xác minh qua diagnostic):
+            // 0: STT | 1: Số thẻ | 2: Họ tên | 3: Ngày sinh | 4: Nam | 5: Nữ | 6: CCCD | 7: Dân tộc | 
+            // 8: Thường trú | 9: Tạm trú | 10: Nơi ở hiện tại | 11: QH | 12: Tỉnh | 13: Phường | 14: Ghi chú
+
+            const voterCardNo = cols[1] || cols[0];
+            const name = (cols[2] || '').toUpperCase();
+            const dob = cols[3] || '';
+            const isFemale = (cols[5] && cols[5].toLowerCase() === 'x');
+            const gender = isFemale ? 'Nữ' : 'Nam';
+            const cccd = cols[6] || `MISSING_${Date.now()}_${index}`;
+            const ethnic = cols[7] || 'Kinh';
+
+            const permanentAddress = cols[8] || '';
+            const temporaryAddress = cols[9] || cols[10] || '';
+            const address = temporaryAddress || permanentAddress || 'CHƯA XÁC ĐỊNH';
+            const residenceStatus = temporaryAddress ? 'tam-tru' : 'thuong-tru';
+
+            // Nhận diện KVBP: Trong file này không thấy cột KVBP riêng lẻ, dùng header mặc định
+            let rowAreaId = currentDetectedAreaId;
+            let flagStartIdx = 11;
+
+            // MỚI: Kiểm tra nếu cột 11 là KVBP (như trong KVBP22.xlsx)
+            if (cols[11] && /KV\s*\d+/i.test(cols[11])) {
+              rowAreaId = cols[11].toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
+              flagStartIdx = 12; // Các cột bầu cử dịch sang 12, 13, 14
+            }
+
+            const isNo = (val: string | undefined) => {
+              if (!val) return false;
+              const v = val.toLowerCase().trim();
+              return v === 'o' || v === '0';
+            };
+
+            const vQH = !isNo(cols[flagStartIdx]);
+            const vT = !isNo(cols[flagStartIdx + 1]);
+            const vP = !isNo(cols[flagStartIdx + 2]);
+
+            if (index < 10) {
+              addLog(`LOG: Dòng ${index + 1}: ${name} | KV: ${rowAreaId} | Flags Start: ${flagStartIdx} | QH:[${cols[flagStartIdx] || ''}] T:[${cols[flagStartIdx + 1] || ''}] P:[${cols[flagStartIdx + 2] || ''}]`, 'info');
+              addLog(`--> Kết quả: QH=${vQH}, T=${vT}, P=${vP}`, 'info');
+            }
+
+            // Trích xuất Tổ từ địa chỉ
+            let groupName = 'Tổ --';
+            const groupMatch = address.match(/Tổ\s*(\d+)/i);
+            if (groupMatch) groupName = `Tổ ${groupMatch[1]}`;
+
+            votersList.push({
+              name, dob, gender, cccd, ethnic,
+              voter_card_number: voterCardNo,
+              address: address.toUpperCase(),
+              group_name: groupName,
+              neighborhood_id: getNeighborhoodIdFromAreaId(rowAreaId),
+              unit_id: getUnitIdFromAreaId(rowAreaId),
+              area_id: rowAreaId,
+              voting_status: 'chua-bau',
+              residence_status: residenceStatus,
+              permanent_address: permanentAddress.toUpperCase(),
+              temporary_address: temporaryAddress.toUpperCase(),
+              vote_qh: vQH,
+              vote_t: vT,
+              vote_p: vP
+            });
+            return;
+          }
+        }
+
+        // FALLBACK: REGEX CHO DỮ LIỆU THÔ KHÔNG TAB
         const cccdMatch = trimmedLine.match(/\b\d{9,12}\b/);
 
         if (!cccdMatch) {
@@ -176,11 +291,14 @@ export const VoterImport: React.FC<VoterImportProps> = ({ onBack, isLargeText })
               voter_card_number: '',
               address: 'CHƯA XÁC ĐỊNH',
               group_name: 'Tổ --',
-              neighborhood_id: getNeighborhoodIdFromAreaId(defaultAreaId),
-              unit_id: getUnitIdFromAreaId(defaultAreaId),
-              area_id: defaultAreaId,
+              neighborhood_id: getNeighborhoodIdFromAreaId(currentDetectedAreaId),
+              unit_id: getUnitIdFromAreaId(currentDetectedAreaId),
+              area_id: currentDetectedAreaId,
               voting_status: 'chua-bau',
-              residence_status: 'thuong-tru'
+              residence_status: 'thuong-tru',
+              vote_qh: true,
+              vote_t: true,
+              vote_p: true
             };
 
             failedList.push({
@@ -301,7 +419,7 @@ export const VoterImport: React.FC<VoterImportProps> = ({ onBack, isLargeText })
         // Tìm KV (KV21, KV01...)
         // Thường KV nằm ở cuối phần địa chỉ, trước phần Tổ/KP cuối cùng
         const kvMatch = remaining.match(/KV\d+/i);
-        let areaId = 'kv01'; // Default fallback
+        let areaId = currentDetectedAreaId; // Use detected or default
         let rawAddress = remaining;
         let groupName = 'Tổ --';
 
@@ -334,13 +452,47 @@ export const VoterImport: React.FC<VoterImportProps> = ({ onBack, isLargeText })
         const sttMatch = trimmedLine.match(/^\d+/);
         const stt = sttMatch ? sttMatch[0] : '0';
 
-        // 9. MAPPING HỆ THỐNG
-        const unitId = getUnitIdFromAreaId(areaId);
+        // Dò tìm quyền bầu cử (Tìm x/o ở các cột cuối)
+        let vQH = true, vT = true, vP = true;
+
+        // Ưu tiên tách cột bằng 2+ spaces
+        const parts = trimmedLine.split(/\s{2,}/).map(p => p.trim());
+        if (parts.length >= 10) {
+          const lastIdx = parts.length - 1;
+          const pVal = parts[lastIdx - 1]?.toLowerCase();
+          const tVal = parts[lastIdx - 2]?.toLowerCase();
+          const qhVal = parts[lastIdx - 3]?.toLowerCase();
+          if (pVal === 'x' || pVal === 'o') vP = pVal !== 'o';
+          if (tVal === 'x' || tVal === 'o') vT = tVal !== 'o';
+          if (qhVal === 'x' || qhVal === 'o') vQH = qhVal !== 'o';
+        } else {
+          // Robust Fallback: Lấy các token cuối cùng của dòng và kiểm tra x/o
+          const tokens = trimmedLine.split(/\s+/).filter(t => t.length > 0);
+          const lastTokens = tokens.slice(-5); // Lấy tối đa 5 token cuối
+          let flagsFound = [];
+          // Đi ngược từ cuối lên
+          for (let i = lastTokens.length - 1; i >= 0 && flagsFound.length < 3; i--) {
+            const val = lastTokens[i].toLowerCase();
+            if (val === 'x' || val === 'o') {
+              flagsFound.push(val !== 'o');
+            }
+          }
+          // Mapping: Token cuối là P, kế cuối là T, kế tiếp là QH
+          if (flagsFound.length >= 1) vP = flagsFound[0];
+          if (flagsFound.length >= 2) vT = flagsFound[1];
+          if (flagsFound.length >= 3) vQH = flagsFound[2];
+        }
+
         const neighborhoodId = getNeighborhoodIdFromAreaId(areaId);
+        const unitId = getUnitIdFromAreaId(areaId);
+
+        if (index < 10) {
+          addLog(`LOG (R): Dòng ${index + 1}: ${name} | KV: ${areaId} | Flags: QH=${vQH}, T=${vT}, P=${vP}`, 'info');
+        }
 
         const parsedVoter: ParsedVoter = {
           name,
-          dob: dob || '', // Cho phép rỗng nếu force add
+          dob: dob || '',
           gender,
           cccd,
           ethnic: ethnic || 'Kinh',
@@ -351,7 +503,12 @@ export const VoterImport: React.FC<VoterImportProps> = ({ onBack, isLargeText })
           unit_id: unitId,
           area_id: areaId,
           voting_status: 'chua-bau',
-          residence_status: residenceStatus
+          residence_status: residenceStatus,
+          vote_qh: vQH,
+          vote_t: vT,
+          vote_p: vP,
+          permanent_address: residenceStatus === 'thuong-tru' ? rawAddress.toUpperCase() : '',
+          temporary_address: residenceStatus === 'tam-tru' ? rawAddress.toUpperCase() : ''
         };
 
         // Check for duplicates

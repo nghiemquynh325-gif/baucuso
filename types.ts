@@ -12,9 +12,9 @@ export interface LocationNode {
   name: string;
   parentId?: string;
   type: 'ward' | 'neighborhood' | 'unit' | 'area';
-  locationDetail?: string; 
+  locationDetail?: string;
   groups?: string; // e.g., "Tổ 1, 2, 3"
-  neighborhoodId?: string; 
+  neighborhoodId?: string;
 }
 
 /**
@@ -25,18 +25,23 @@ export interface Voter {
   name: string;
   dob: string;
   gender: 'Nam' | 'Nữ';
-  cccd: string; 
-  voterCardNumber: string; 
-  address: string; 
-  group: string; 
-  neighborhoodId: string; 
-  unitId: string; 
-  areaId: string; 
+  cccd: string;
+  voterCardNumber: string;
+  address: string;
+  group: string;
+  neighborhoodId: string;
+  unitId: string;
+  areaId: string;
   residenceStatus: ResidenceStatus;
+  permanentAddress?: string;
+  temporaryAddress?: string;
   residenceNote?: string;
   votingStatus: VotingStatus;
   status: 'hop-le' | 'loi' | 'trung';
   ethnic?: string; // Thêm trường Dân tộc
+  voteQH?: boolean;
+  voteT?: boolean;
+  voteP?: boolean;
 }
 
 export interface LogEntry {

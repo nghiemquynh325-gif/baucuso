@@ -163,7 +163,9 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
                 id: v.id, name: v.name, dob: v.dob, gender: v.gender, cccd: v.cccd, ethnic: v.ethnic,
                 voterCardNumber: v.voter_card_number, address: v.address, neighborhoodId: v.neighborhood_id,
                 unitId: v.unit_id, areaId: v.area_id, group: v.group_name, residenceStatus: v.residence_status,
-                votingStatus: v.voting_status, status: 'hop-le'
+                votingStatus: v.voting_status, status: 'hop-le',
+                voteQH: v.vote_qh, voteT: v.vote_t, voteP: v.vote_p,
+                permanentAddress: v.permanent_address, temporaryAddress: v.temporary_address
             })) as any);
         }
         setLoading(false);
@@ -237,7 +239,12 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
                 unit_id: editingVoter.unitId,
                 area_id: editingVoter.areaId,
                 group_name: editingVoter.group,
-                residence_status: editingVoter.residenceStatus
+                residence_status: editingVoter.residenceStatus,
+                vote_qh: editingVoter.voteQH,
+                vote_t: editingVoter.voteT,
+                vote_p: editingVoter.voteP,
+                permanent_address: editingVoter.permanentAddress,
+                temporary_address: editingVoter.temporaryAddress
             }).eq('id', editingVoter.id);
 
             if (error) throw error;
@@ -279,10 +286,13 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
         const search = searchTerm.toLowerCase().trim();
         if (search) {
             result = result.filter(v => {
-                if (v.name.toLowerCase().includes(search)) return true;
-                if (v.cccd?.includes(search)) return true;
-                if (v.voterCardNumber?.toLowerCase().includes(search)) return true;
-                return false;
+                const nameMatch = v.name.toLowerCase().includes(search);
+                const cccdMatch = v.cccd?.includes(search);
+                const cardMatch = v.voterCardNumber?.toLowerCase().includes(search);
+                const addressMatch = v.address?.toLowerCase().includes(search) ||
+                    v.permanentAddress?.toLowerCase().includes(search) ||
+                    v.temporaryAddress?.toLowerCase().includes(search);
+                return nameMatch || cccdMatch || cardMatch || addressMatch;
             });
         }
 
@@ -466,8 +476,19 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
                                                     <span>{v.dob || 'NS: --'}</span>
                                                     <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
                                                     <span>{v.gender}</span>
+                                                    {v.ethnic && (
+                                                        <>
+                                                            <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
+                                                            <span>{v.ethnic}</span>
+                                                        </>
+                                                    )}
                                                     <span className="w-0.5 h-0.5 rounded-full bg-slate-300"></span>
                                                     {getResidenceBadge(v.residenceStatus)}
+                                                    <div className="flex gap-1 ml-auto">
+                                                        {v.voteQH && <span className="px-1 rounded-[4px] text-[8px] font-black bg-blue-100 text-blue-700">QH</span>}
+                                                        {v.voteT && <span className="px-1 rounded-[4px] text-[8px] font-black bg-indigo-100 text-indigo-700">TP</span>}
+                                                        {v.voteP && <span className="px-1 rounded-[4px] text-[8px] font-black bg-purple-100 text-purple-700">P</span>}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </td>
@@ -626,12 +647,37 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
                                 />
                             </div>
                             <div className="space-y-1">
+                                <label className="text-[10px] font-black uppercase text-slate-400">Địa chỉ thường trú</label>
+                                <input type="text" value={editingVoter.permanentAddress || ''} onChange={e => setEditingVoter({ ...editingVoter, permanentAddress: e.target.value })} className="w-full h-10 px-3 border border-slate-200 rounded-lg text-sm font-bold focus:border-primary outline-none" placeholder="Nhập địa chỉ thường trú..." />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-black uppercase text-slate-400">Địa chỉ tạm trú / Hiện tại</label>
+                                <input type="text" value={editingVoter.temporaryAddress || ''} onChange={e => setEditingVoter({ ...editingVoter, temporaryAddress: e.target.value })} className="w-full h-10 px-3 border border-slate-200 rounded-lg text-sm font-bold focus:border-primary outline-none" placeholder="Nhập địa chỉ tạm trú..." />
+                            </div>
+                            <div className="space-y-1">
                                 <label className="text-[10px] font-black uppercase text-slate-400">Trạng thái cư trú</label>
                                 <select value={editingVoter.residenceStatus} onChange={e => setEditingVoter({ ...editingVoter, residenceStatus: e.target.value as any })} className="w-full h-10 px-3 border border-slate-200 rounded-lg text-sm font-bold focus:border-primary outline-none">
                                     <option value="thuong-tru">Thường trú</option>
                                     <option value="tam-tru">Tạm trú</option>
                                     <option value="tam-vang">Tạm vắng</option>
                                 </select>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-black uppercase text-slate-400">Quyền bầu cử</label>
+                                <div className="flex gap-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={editingVoter.voteQH} onChange={e => setEditingVoter({ ...editingVoter, voteQH: e.target.checked })} className="size-4 border-slate-300 rounded text-primary focus:ring-primary" />
+                                        <span className="text-[10px] font-bold uppercase text-slate-600">ĐBQH</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={editingVoter.voteT} onChange={e => setEditingVoter({ ...editingVoter, voteT: e.target.checked })} className="size-4 border-slate-300 rounded text-primary focus:ring-primary" />
+                                        <span className="text-[10px] font-bold uppercase text-slate-600">Tỉnh/TP</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={editingVoter.voteP} onChange={e => setEditingVoter({ ...editingVoter, voteP: e.target.checked })} className="size-4 border-slate-300 rounded text-primary focus:ring-primary" />
+                                        <span className="text-[10px] font-bold uppercase text-slate-600">Phường/Xã</span>
+                                    </label>
+                                </div>
                             </div>
                         </div>
                         <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
