@@ -25,7 +25,16 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
 
     // --- FILTER STATES ---
     const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
+
+    // Debounce search term
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(searchTerm);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
     const [showAdvancedFilters, setShowAdvancedFilters] = useState(false); // Toggle bộ lọc nâng cao
     const [isScannerOpen, setIsScannerOpen] = useState(false);
 
@@ -282,8 +291,8 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
             result = result.filter(v => v.voterCardNumber?.toLowerCase().includes(cardSearch));
         }
 
-        // Then apply search term
-        const search = searchTerm.toLowerCase().trim();
+        // Then apply search term (debounced)
+        const search = debouncedSearch.toLowerCase().trim();
         if (search) {
             result = result.filter(v => {
                 const nameMatch = v.name.toLowerCase().includes(search);
@@ -297,7 +306,7 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
         }
 
         return result;
-    }, [voters, searchTerm, filterCardNumber]);
+    }, [voters, debouncedSearch, filterCardNumber]);
 
     const paginatedVoters = filteredVoters.slice(
         (currentPage - 1) * ITEMS_PER_PAGE,

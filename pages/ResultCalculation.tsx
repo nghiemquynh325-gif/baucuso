@@ -3,6 +3,19 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { AN_PHU_LOCATIONS, NEIGHBORHOODS } from '../types';
 import { getDelegateCount } from '../lib/voting';
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend
+} from 'recharts';
 
 /**
  * COMPONENT: ResultCalculation
@@ -61,23 +74,22 @@ const DetailModal: React.FC<{
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const PAGE_SIZE = 50;
-  if (!isOpen || !item) return null;
-
-  const areaTotalVotes = totalVotesByArea[item.rawId] || 0;
-  const areaValidVotes = item.validVotes || 0;
-  const areaUnvotedVotes = item.unvotedVotes || 0;
-
-  // Deterministic delegate count based on candidate count - will use a default or fetch if needed
-  // For simplicity, we use the standard calculation
-  const maxPossible = areaValidVotes * 3; // Assuming 3 delegates as a common case, or we could pass it.
-  // Actually, we should probably fetch the candidate count for this area to be exact.
-  const isCorrect = (areaTotalVotes + areaUnvotedVotes) === maxPossible && maxPossible > 0;
 
   useEffect(() => {
     if (isOpen && item) {
       fetchVoters(0);
     }
   }, [isOpen, item, filter]);
+
+  if (!isOpen || !item) return null;
+
+  const areaTotalVotes = totalVotesByArea[item.rawId] || 0;
+  const areaValidVotes = item.validVotes || 0;
+  const areaUnvotedVotes = item.unvotedVotes || 0;
+
+  // Deterministic delegate count based on candidate count
+  const maxPossible = areaValidVotes * 3;
+  const isCorrect = (areaTotalVotes + areaUnvotedVotes) === maxPossible && maxPossible > 0;
 
   const fetchVoters = async (pageNum: number) => {
     setLoading(true);
@@ -198,59 +210,147 @@ const DetailModal: React.FC<{
           </button>
         </div>
 
-        {/* Voter List Table */}
+        {/* Modal Body Content */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-0">
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-              <tr>
-                <th className="px-8 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Họ và Tên</th>
-                <th className="px-8 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Thông tin định danh</th>
-                <th className="px-8 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
+          {mode === 'list' ? (
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
                 <tr>
-                  <td colSpan={3} className="px-8 py-20 text-center">
-                    <div className="flex flex-col items-center gap-2">
-                      <span className="material-symbols-outlined text-4xl text-slate-200 animate-spin">refresh</span>
-                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Đang tải cử tri...</p>
-                    </div>
-                  </td>
+                  <th className="px-8 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Họ và Tên</th>
+                  <th className="px-8 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Thông tin định danh</th>
+                  <th className="px-8 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Trạng thái</th>
                 </tr>
-              ) : voters.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="px-8 py-10 text-center text-slate-400 text-sm font-bold italic">
-                    Không có cử tri nào trong danh sách này.
-                  </td>
-                </tr>
-              ) : (
-                voters.map((v) => (
-                  <tr key={v.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-8 py-4">
-                      <p className="text-sm font-black text-slate-900 uppercase">{v.name}</p>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">{v.group_name || 'Tổ --'} • {v.neighborhood_id?.replace('kp_', 'KP ').toUpperCase()}</p>
-                    </td>
-                    <td className="px-8 py-4">
-                      <p className="text-xs font-bold text-slate-600">{v.cccd || 'CCCD: --'}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Mã thẻ: {v.voter_card_number || '--'}</p>
-                    </td>
-                    <td className="px-8 py-4 text-center">
-                      {v.voting_status === 'da-bau' ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase">
-                          <span className="material-symbols-outlined text-[10px]">check</span> Đã bầu
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-50 text-red-600 text-[9px] font-black uppercase">
-                          <span className="material-symbols-outlined text-[10px]">pending</span> Chưa bầu
-                        </span>
-                      )}
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {loading ? (
+                  <tr>
+                    <td colSpan={3} className="px-8 py-20 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="material-symbols-outlined text-4xl text-slate-200 animate-spin">refresh</span>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Đang tải cử tri...</p>
+                      </div>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : voters.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="px-8 py-10 text-center text-slate-400 text-sm font-bold italic">
+                      Không có cử tri nào trong danh sách này.
+                    </td>
+                  </tr>
+                ) : (
+                  voters.map((v) => (
+                    <tr key={v.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-8 py-4">
+                        <p className="text-sm font-black text-slate-900 uppercase">{v.name}</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">{v.group_name || 'Tổ --'} • {v.neighborhood_id?.replace('kp_', 'KP ').toUpperCase()}</p>
+                      </td>
+                      <td className="px-8 py-4">
+                        <p className="text-xs font-bold text-slate-600">{v.cccd || 'CCCD: --'}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Mã thẻ: {v.voter_card_number || '--'}</p>
+                      </td>
+                      <td className="px-8 py-4 text-center">
+                        {v.voting_status === 'da-bau' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase">
+                            <span className="material-symbols-outlined text-[10px]">check</span> Đã bầu
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-50 text-red-600 text-[9px] font-black uppercase">
+                            <span className="material-symbols-outlined text-[10px]">pending</span> Chưa bầu
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          ) : (
+            /* Mode Progress: Analytics Chart */
+            <div className="p-10 space-y-10">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 flex flex-col items-center">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Tỷ lệ cử tri đi bầu</h4>
+                  <div className="size-64 relative">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Đã bầu', value: item.voted },
+                            { name: 'Chưa bầu', value: item.total - item.voted }
+                          ]}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          <Cell fill="#10b981" />
+                          <Cell fill="#f1f5f9" />
+                        </Pie>
+                        <RechartsTooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <p className="text-4xl font-black text-slate-900">{item.percent}%</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tiến độ</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 flex flex-col items-center">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Cơ cấu theo giới tính</h4>
+                  <div className="size-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Nam', value: item.maleVoted || 0 },
+                            { name: 'Nữ', value: item.femaleVoted || 0 }
+                          ]}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          <Cell fill="#3b82f6" />
+                          <Cell fill="#f472b6" />
+                        </Pie>
+                        <RechartsTooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex gap-6 mt-4">
+                    <div className="flex items-center gap-2">
+                      <span className="size-3 rounded-full bg-blue-500"></span>
+                      <span className="text-xs font-bold text-slate-600">Nam: {item.maleVoted || 0}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="size-3 rounded-full bg-pink-500"></span>
+                      <span className="text-xs font-bold text-slate-600">Nữ: {item.femaleVoted || 0}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Progress Summary Info */}
+              <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white">
+                <div className="flex items-center gap-4 mb-6">
+                  <span className="material-symbols-outlined text-primary text-3xl">info</span>
+                  <h4 className="text-xs font-black uppercase tracking-widest">Đánh giá chung về tiến độ</h4>
+                </div>
+                <p className="text-slate-400 text-sm leading-relaxed">
+                  Hiện tại, {item.name} đã có <span className="text-white font-bold">{item.voted.toLocaleString()}</span> cử tri đi bầu trong tổng số <span className="text-white font-bold">{item.total.toLocaleString()}</span> cử tri niêm yết.
+                  Tỷ lệ đạt <span className="text-primary font-black">{item.percent}%</span>.
+                  {item.percent >= 90 ? ' Đây là một tín hiệu rất tốt, khu vực sắp hoàn thành chỉ tiêu.' :
+                    item.percent >= 75 ? ' Tiến độ đang ở mức trung bình, cần đẩy mạnh thông báo cho cử tri.' :
+                      ' Tiến độ hiện đang chậm so với kế hoạch, đề nghị Ban điều hành rà soát và đôn đốc cử tri đi bầu.'}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Pagination Footer */}

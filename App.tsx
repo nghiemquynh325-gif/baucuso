@@ -88,13 +88,17 @@ const AppContent: React.FC = () => {
   );
 };
 
+import { ErrorBoundary } from './components/ErrorBoundary';
+
 const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <NotificationProvider>
-        <AppContent />
-      </NotificationProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <NotificationProvider>
+          <AppContent />
+        </NotificationProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 };
 
