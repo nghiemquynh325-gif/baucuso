@@ -348,9 +348,11 @@ export const ResultCalculation: React.FC<{ isLargeText?: boolean }> = ({ isLarge
   const [summary, setSummary] = useState({
     total: 0,
     voted: 0,
+    maleVoted: 0, // Thêm Nam
+    femaleVoted: 0, // Thêm Nữ
     notVoted: 0,
     completedAreas: 0,
-    lockedAreas: 0, // Số KVBP đã khóa sổ
+    lockedAreas: 0,
     totalAreas: 45
   });
 
@@ -375,7 +377,7 @@ export const ResultCalculation: React.FC<{ isLargeText?: boolean }> = ({ isLarge
       supabase.removeChannel(statsSub);
       supabase.removeChannel(resultSub);
     };
-  }, []);
+  }, [viewMode]); // Thêm viewMode vào dependency
 
   const fetchRealtimeData = async () => {
     try {
@@ -604,8 +606,20 @@ export const ResultCalculation: React.FC<{ isLargeText?: boolean }> = ({ isLarge
             <span className="material-symbols-outlined text-emerald-500">how_to_vote</span>
           </div>
           <div className="mt-4">
-            <p className="text-4xl font-black text-slate-900 tracking-tight">{summary.voted.toLocaleString()}</p>
-            <p className="text-[9px] font-bold text-emerald-600 uppercase mt-1">Tiến độ: {summary.total > 0 ? ((summary.voted / summary.total) * 100).toFixed(2) : 0}%</p>
+            <div className="flex items-baseline gap-2">
+              <p className="text-4xl font-black text-slate-900 tracking-tight">{summary.voted.toLocaleString()}</p>
+              <p className="text-[10px] font-black text-emerald-600 uppercase">({summary.total > 0 ? ((summary.voted / summary.total) * 100).toFixed(1) : 0}%)</p>
+            </div>
+            <div className="flex gap-3 mt-2 pt-2 border-t border-slate-50">
+              <div className="flex items-center gap-1">
+                <span className="size-2 rounded-full bg-blue-400"></span>
+                <p className="text-[10px] font-bold text-slate-500">Nam: <span className="text-slate-900">{summary.maleVoted?.toLocaleString()}</span></p>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="size-2 rounded-full bg-pink-400"></span>
+                <p className="text-[10px] font-bold text-slate-500">Nữ: <span className="text-slate-900">{summary.femaleVoted?.toLocaleString()}</span></p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -830,7 +844,11 @@ export const ResultCalculation: React.FC<{ isLargeText?: boolean }> = ({ isLarge
                 {/* Số liệu bầu cử */}
                 <div className="col-span-2 text-center flex flex-col items-center">
                   <p className="text-base font-black text-slate-900 leading-none">{item.voted.toLocaleString()}<span className="text-slate-300 font-bold ml-0.5">/{item.total.toLocaleString()}</span></p>
-                  <div className="w-16 h-1.5 bg-slate-100 rounded-full mt-2 overflow-hidden border border-slate-200">
+                  <div className="flex gap-2 mt-1 text-[8px] font-black uppercase text-slate-400">
+                    <span className="text-blue-500">Nam: {item.maleVoted || 0}</span>
+                    <span className="text-pink-500">Nữ: {item.femaleVoted || 0}</span>
+                  </div>
+                  <div className="w-16 h-1 bg-slate-100 rounded-full mt-1 overflow-hidden border border-slate-200 text-[0px]">
                     <div className={`h-full ${getStatusColor(item.status)} shadow-sm transition-all duration-1000`} style={{ width: `${item.percent}%` }}></div>
                   </div>
                 </div>

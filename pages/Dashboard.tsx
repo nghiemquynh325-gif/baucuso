@@ -11,9 +11,6 @@ import {
    Tooltip,
    ResponsiveContainer,
    Cell,
-   PieChart,
-   Pie,
-   Legend,
    AreaChart,
    Area
 } from 'recharts';
@@ -26,21 +23,42 @@ const UNIT_COLORS = [
    '#3b82f6', '#8b5cf6', '#d946ef', '#f43f5e', '#f97316', '#eab308', '#10b981', '#06b6d4', '#6366f1',
 ];
 
-const GENDER_COLORS = ['#3b82f6', '#f43f5e'];
 const AGE_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444'];
 
 export const Dashboard: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) => {
-   const [stats, setStats] = useState({ total: 0, voted: 0 });
+   const [stats, setStats] = useState({
+      total: 0,
+      voted: 0,
+      totalMale: 0,
+      totalFemale: 0,
+      maleVoted: 0,
+      femaleVoted: 0
+   });
    const [kvData, setKvData] = useState<any[]>([]);
    const [unitChartData, setUnitChartData] = useState<any[]>([]);
-   const [genderData, setGenderData] = useState<any[]>([]);
    const [ageData, setAgeData] = useState<any[]>([]);
-   const [ethnicData, setEthnicData] = useState<any[]>([]);
    const [trendData, setTrendData] = useState<any[]>([]);
    const [currentTime, setCurrentTime] = useState(new Date());
 
-   const [allVoters, setAllVoters] = useState<any[]>([]);
    const [selectedKvId, setSelectedKvId] = useState<string | null>(null);
+   const [selectedKvVoters, setSelectedKvVoters] = useState<any[]>([]); // New state for drill-down
+
+   useEffect(() => {
+      if (selectedKvId) {
+         fetchKvVoters(selectedKvId);
+      }
+   }, [selectedKvId]);
+
+   const fetchKvVoters = async (kvId: string) => {
+      const { data } = await supabase.from('voters').select('*').eq('area_id', kvId);
+      if (data) {
+         setSelectedKvVoters(data.sort((a, b) => {
+            if (a.voting_status === 'da-bau' && b.voting_status !== 'da-bau') return 1;
+            if (a.voting_status !== 'da-bau' && b.voting_status === 'da-bau') return -1;
+            return a.name.localeCompare(b.name);
+         }));
+      }
+   };
 
    useEffect(() => {
       const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -65,80 +83,57 @@ export const Dashboard: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
 
    const fetchRealtimeStats = async () => {
       try {
-         const { data: votersData, error } = await supabase
-            .from('voters')
-            .select('*');
+         // 1. Fetch Summary via updated RPC
+         const { data: summary, error: sErr } = await supabase.rpc('get_election_summary');
+         if (sErr) {
+            console.error("RPC get_election_summary error:", sErr);
+            throw sErr;
+         }
 
-         if (error) throw error;
+         if (summary) {
+            setStats({
+               total: summary.total,
+               voted: summary.voted,
+               totalMale: summary.totalMale || 0,
+               totalFemale: summary.totalFemale || 0,
+               maleVoted: summary.maleVoted || 0,
+               femaleVoted: summary.femaleVoted || 0
+            });
 
-         if (votersData) {
-            setAllVoters(votersData);
+            setAgeData(Object.entries(summary.ageStats || {}).map(([name, value]) => ({ name, value })));
+         }
 
-            const totalCount = votersData.length;
-            const votedCount = votersData.filter(v => v.voting_status === 'da-bau').length;
-            setStats({ total: totalCount, voted: votedCount });
+         // 2. Fetch Aggregated Lists via RPC
+         const { data: unitStats, error: uErr } = await supabase.rpc('get_aggregated_stats', { p_view_mode: 'unit' });
+         if (uErr) console.error("RPC get_aggregated_stats (unit) error:", uErr);
+         if (unitStats) {
+            setUnitChartData(unitStats.map((u: any) => ({
+               name: (AN_PHU_LOCATIONS.find(l => l.id === u.rawId)?.name || u.id).replace('Đơn vị số', 'ĐV'),
+               full_name: AN_PHU_LOCATIONS.find(l => l.id === u.rawId)?.name || u.id,
+               total: u.total,
+               voted: u.voted,
+               remain: u.total - u.voted,
+               percentage: u.total > 0 ? parseFloat(((u.voted / u.total) * 100).toFixed(1)) : 0
+            })));
+         }
 
-            const units = AN_PHU_LOCATIONS.filter(l => l.type === 'unit');
-            const unitStats = units.map(unit => {
-               const unitVoters = votersData.filter(v => v.unit_id === unit.id);
-               const unitTotal = unitVoters.length;
-               const unitVoted = unitVoters.filter(v => v.voting_status === 'da-bau').length;
+         const { data: areaStats, error: aErr } = await supabase.rpc('get_aggregated_stats', { p_view_mode: 'area' });
+         if (aErr) console.error("RPC get_aggregated_stats (area) error:", aErr);
+         if (areaStats) {
+            // ĐẢM BẢO HIỂN THỊ ĐỦ 45 KVBP TỪ MASTER DATA
+            const kvAreas = AN_PHU_LOCATIONS.filter(l => l.type === 'area');
+            const mappedKV = kvAreas.map(loc => {
+               const stat = areaStats.find((s: any) => s.rawId === loc.id);
                return {
-                  name: unit.name.replace('Đơn vị số', 'ĐV'),
-                  full_name: unit.name,
-                  total: unitTotal,
-                  voted: unitVoted,
-                  remain: unitTotal - unitVoted,
-                  percentage: unitTotal > 0 ? parseFloat(((unitVoted / unitTotal) * 100).toFixed(1)) : 0
+                  id: loc.id,
+                  name: loc.name,
+                  total: stat?.total || 0,
+                  voted: stat?.voted || 0,
+                  remain: (stat?.total || 0) - (stat?.voted || 0),
+                  percentage: stat?.total > 0 ? Math.round((stat.voted / stat.total) * 100) : 0
                };
             });
-            setUnitChartData(unitStats);
-
-            const areaNodes = AN_PHU_LOCATIONS.filter(l => l.type === 'area');
-            const calculatedKV = areaNodes.map(area => {
-               const areaVoters = votersData.filter(v => v.area_id === area.id);
-               const t = areaVoters.length;
-               const v = areaVoters.filter(v => v.voting_status === 'da-bau').length;
-               return {
-                  id: area.id,
-                  name: area.name,
-                  total: t,
-                  voted: v,
-                  remain: t - v,
-                  percentage: t > 0 ? Math.round((v / t) * 100) : 0
-               };
-            });
-            setKvData(calculatedKV);
-
-            // Demographics
-            const votedVoters = votersData.filter(v => v.voting_status === 'da-bau');
-            setGenderData([
-               { name: 'Nam', value: votedVoters.filter(v => v.gender === 'Nam').length },
-               { name: 'Nữ', value: votedVoters.filter(v => v.gender === 'Nữ').length }
-            ]);
-
-            const currentYear = new Date().getFullYear();
-            const ageGroups = { '18-30': 0, '31-45': 0, '46-60': 0, 'Trên 60': 0 };
-            votedVoters.forEach(v => {
-               if (v.dob) {
-                  const birthYear = parseInt(v.dob.split('/').pop() || v.dob.split('-').shift() || '0');
-                  if (birthYear > 1000) {
-                     const age = currentYear - birthYear;
-                     if (age <= 30) ageGroups['18-30']++;
-                     else if (age <= 45) ageGroups['31-45']++;
-                     else if (age <= 60) ageGroups['46-60']++;
-                     else ageGroups['Trên 60']++;
-                  }
-               }
-            });
-            setAgeData(Object.entries(ageGroups).map(([name, value]) => ({ name, value })));
-
-            const ethnicMap: Record<string, number> = {};
-            votedVoters.forEach(v => {
-               const e = v.ethnic || 'Kinh';
-               ethnicMap[e] = (ethnicMap[e] || 0) + 1;
-            });
-            setEthnicData(Object.entries(ethnicMap).map(([name, value]) => ({ name, value })));
+            setKvData(mappedKV);
          }
       } catch (err) {
          console.error("Dashboard error:", err);
@@ -166,17 +161,6 @@ export const Dashboard: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
    };
 
    const overallPercentage = stats.total > 0 ? ((stats.voted / stats.total) * 100).toFixed(2) : "0.00";
-
-   const selectedKvVoters = useMemo(() => {
-      if (!selectedKvId) return [];
-      return allVoters
-         .filter(v => v.area_id === selectedKvId)
-         .sort((a, b) => {
-            if (a.voting_status === 'da-bau' && b.voting_status !== 'da-bau') return 1;
-            if (a.voting_status !== 'da-bau' && b.voting_status === 'da-bau') return -1;
-            return a.name.localeCompare(b.name);
-         });
-   }, [selectedKvId, allVoters]);
 
    const selectedKvInfo = useMemo(() => {
       if (!selectedKvId) return null;
@@ -217,19 +201,64 @@ export const Dashboard: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
             </div>
          </div>
 
-         <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-10 border-2 border-slate-200 shadow-2xl relative overflow-hidden">
-            <div className="flex justify-between items-end mb-6">
-               <div>
-                  <p className="text-xs font-black text-slate-400 uppercase tracking-[0.3em] mb-2">TIẾN ĐỘ TỔNG THỂ TOÀN PHƯỜNG</p>
-                  <h2 className={`font-black text-slate-900 dark:text-white tracking-tighter ${isLargeText ? 'text-8xl' : 'text-7xl'} leading-none`}>{overallPercentage}%</h2>
+         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-10 border-2 border-slate-200 shadow-2xl relative overflow-hidden">
+               <div className="flex justify-between items-end mb-6">
+                  <div>
+                     <p className="text-xs font-black text-slate-400 uppercase tracking-[0.3em] mb-2">TIẾN ĐỘ TỔNG THỂ TOÀN PHƯỜNG</p>
+                     <h2 className={`font-black text-slate-900 dark:text-white tracking-tighter ${isLargeText ? 'text-8xl' : 'text-7xl'} leading-none`}>{overallPercentage}%</h2>
+                  </div>
+                  <div className="text-right">
+                     <p className={`font-black text-emerald-700 uppercase ${isLargeText ? 'text-3xl' : 'text-2xl'}`}>{stats.voted.toLocaleString()} <span className="text-slate-300">/</span> {stats.total.toLocaleString()}</p>
+                     <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Cử tri đã đi bầu</p>
+                  </div>
                </div>
-               <div className="text-right">
-                  <p className={`font-black text-emerald-700 uppercase ${isLargeText ? 'text-3xl' : 'text-2xl'}`}>{stats.voted.toLocaleString()} <span className="text-slate-300">/</span> {stats.total.toLocaleString()}</p>
-                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Cử tri đã đi bầu</p>
+               <div className="h-14 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border-4 border-slate-200 p-1.5 shadow-inner">
+                  <div className="h-full bg-gradient-to-r from-admin-red via-primary to-emerald-500 rounded-full transition-all duration-1000" style={{ width: `${overallPercentage}%` }} />
                </div>
             </div>
-            <div className="h-14 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border-4 border-slate-200 p-1.5 shadow-inner">
-               <div className="h-full bg-gradient-to-r from-admin-red via-primary to-emerald-500 rounded-full transition-all duration-1000" style={{ width: `${overallPercentage}%` }} />
+
+            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-10 border-2 border-slate-200 shadow-xl flex flex-col justify-center">
+               <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6">Thống kê theo giới tính</p>
+               <div className="grid grid-cols-2 gap-8">
+                  <div className="space-y-4">
+                     <div className="flex items-center gap-3">
+                        <div className="size-10 rounded-2xl bg-blue-100 flex items-center justify-center text-blue-600">
+                           <span className="material-symbols-outlined">man</span>
+                        </div>
+                        <div>
+                           <p className="text-[10px] font-black text-slate-400 uppercase">Tổng cử tri Nam</p>
+                           <p className="text-2xl font-black text-slate-900 leading-none">{stats.totalMale.toLocaleString()}</p>
+                        </div>
+                     </div>
+                     <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
+                        <p className="text-[10px] font-black text-blue-600 uppercase mb-1">Nam đã đi bầu</p>
+                        <p className="text-xl font-black text-blue-700">{stats.maleVoted.toLocaleString()}</p>
+                        <div className="h-1 bg-blue-200 rounded-full mt-2 overflow-hidden">
+                           <div className="h-full bg-blue-600" style={{ width: `${stats.totalMale > 0 ? (stats.maleVoted / stats.totalMale * 100) : 0}%` }}></div>
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="space-y-4">
+                     <div className="flex items-center gap-3">
+                        <div className="size-10 rounded-2xl bg-pink-100 flex items-center justify-center text-pink-600">
+                           <span className="material-symbols-outlined">woman</span>
+                        </div>
+                        <div>
+                           <p className="text-[10px] font-black text-slate-400 uppercase">Tổng cử tri Nữ</p>
+                           <p className="text-2xl font-black text-slate-900 leading-none">{stats.totalFemale.toLocaleString()}</p>
+                        </div>
+                     </div>
+                     <div className="p-4 bg-pink-50/50 rounded-2xl border border-pink-100">
+                        <p className="text-[10px] font-black text-pink-600 uppercase mb-1">Nữ đã đi bầu</p>
+                        <p className="text-xl font-black text-pink-700">{stats.femaleVoted.toLocaleString()}</p>
+                        <div className="h-1 bg-pink-200 rounded-full mt-2 overflow-hidden">
+                           <div className="h-full bg-pink-600" style={{ width: `${stats.totalFemale > 0 ? (stats.femaleVoted / stats.totalFemale * 100) : 0}%` }}></div>
+                        </div>
+                     </div>
+                  </div>
+               </div>
             </div>
          </div>
 
@@ -272,58 +301,46 @@ export const Dashboard: React.FC<{ isLargeText?: boolean }> = ({ isLargeText }) 
             </div>
          </div>
 
-         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-6 border border-slate-200 shadow-lg h-[350px] flex flex-col">
-               <h4 className="text-sm font-black text-slate-900 uppercase mb-4 flex items-center gap-2"><span className="material-symbols-outlined text-primary">pie_chart</span> Giới tính</h4>
-               <div className="flex-1 min-h-[220px] relative">
-                  <ResponsiveContainer width="100%" height={220} debounce={100}>
-                     <PieChart>
-                        <Pie data={genderData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                           {genderData.map((e, i) => <Cell key={i} fill={GENDER_COLORS[i % GENDER_COLORS.length]} />)}
-                        </Pie>
-                        <Tooltip /><Legend />
-                     </PieChart>
-                  </ResponsiveContainer>
-               </div>
-            </div>
-            <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-6 border border-slate-200 shadow-lg h-[350px] flex flex-col">
-               <h4 className="text-sm font-black text-slate-900 uppercase mb-4 flex items-center gap-2"><span className="material-symbols-outlined text-primary">analytics</span> Độ tuổi</h4>
-               <div className="flex-1 min-h-[220px] relative">
-                  <ResponsiveContainer width="100%" height={220} debounce={100}>
+         <div className="grid grid-cols-1 gap-6">
+            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-10 border border-slate-200 shadow-xl min-h-[400px] flex flex-col">
+               <h4 className="text-sm font-black text-slate-900 uppercase mb-8 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary">analytics</span> Thống kê theo Độ tuổi cử tri đã bầu
+               </h4>
+               <div className="flex-1 w-full min-h-[300px] relative">
+                  <ResponsiveContainer width="100%" height={300} debounce={100}>
                      <BarChart data={ageData}>
-                        <XAxis dataKey="name" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><Tooltip />
-                        <Bar dataKey="value">
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" tick={{ fontSize: 12, fontWeight: 800, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                        <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }} />
+                        <Bar dataKey="value" radius={[10, 10, 0, 0]} barSize={60}>
                            {ageData.map((e, i) => <Cell key={i} fill={AGE_COLORS[i % AGE_COLORS.length]} />)}
                         </Bar>
                      </BarChart>
                   </ResponsiveContainer>
                </div>
             </div>
-            <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-6 border border-slate-200 shadow-lg h-[350px] flex flex-col">
-               <h4 className="text-sm font-black text-slate-900 uppercase mb-4 flex items-center gap-2"><span className="material-symbols-outlined text-primary">folder_shared</span> Dân tộc</h4>
-               <div className="flex-1 min-h-[220px] relative">
-                  <ResponsiveContainer width="100%" height={220} debounce={100}>
-                     <BarChart data={ethnicData} layout="vertical">
-                        <XAxis type="number" tick={{ fontSize: 10 }} /><YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={60} /><Tooltip />
-                        <Bar dataKey="value" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
-                     </BarChart>
-                  </ResponsiveContainer>
-               </div>
-            </div>
          </div>
 
-         <div className="space-y-4">
-            <h3 className="text-lg font-black text-slate-900 uppercase px-2 flex items-center gap-2">
-               <span className="material-symbols-outlined text-primary">grid_view</span> Chi tiết 45 KVBP
-            </h3>
+         <div className="space-y-6">
+            <div className="flex items-center justify-between px-2">
+               <h3 className="text-xl font-black text-slate-900 uppercase flex items-center gap-3">
+                  <span className="material-symbols-outlined text-primary text-3xl">grid_view</span> Chi tiết 45 KVBP (Phường An Phú)
+               </h3>
+               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sắp xếp theo thứ tự niêm yết</p>
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-4">
                {kvData.map((kv) => (
-                  <div key={kv.id} onClick={() => setSelectedKvId(kv.id)} className="p-4 bg-white dark:bg-slate-900 rounded-2xl border-2 border-slate-100 text-center shadow-sm hover:scale-105 hover:border-primary transition-all cursor-pointer">
-                     <p className="text-[10px] font-black uppercase text-slate-400">{kv.id.replace('kv', 'KV ')}</p>
-                     <p className="text-lg font-black text-slate-900 dark:text-white mt-1">{kv.percentage}%</p>
-                     <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div className={`h-full ${kv.percentage >= 90 ? 'bg-emerald-500' : 'bg-primary'}`} style={{ width: `${kv.percentage}%` }} />
+                  <div key={kv.id} onClick={() => setSelectedKvId(kv.id)} className="group p-5 bg-white dark:bg-slate-900 rounded-[2rem] border-2 border-slate-100 text-center shadow-sm hover:scale-105 hover:border-primary hover:shadow-xl transition-all cursor-pointer relative overflow-hidden">
+                     <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-100 transition-opacity">
+                        <span className="material-symbols-outlined text-[10px] text-primary">open_in_new</span>
                      </div>
+                     <p className="text-[10px] font-black uppercase text-slate-400 tracking-tighter">{kv.id.replace('kv', 'KV').toUpperCase()}</p>
+                     <p className="text-2xl font-black text-slate-900 dark:text-white mt-2 leading-none">{kv.percentage}%</p>
+                     <div className="mt-4 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div className={`h-full transition-all duration-1000 ${kv.percentage >= 90 ? 'bg-emerald-500' : kv.percentage >= 50 ? 'bg-primary' : 'bg-admin-red'}`} style={{ width: `${kv.percentage}%` }} />
+                     </div>
+                     <p className="text-[8px] font-bold text-slate-400 mt-2">{kv.voted}/{kv.total}</p>
                   </div>
                ))}
             </div>
