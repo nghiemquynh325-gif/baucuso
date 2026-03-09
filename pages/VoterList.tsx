@@ -285,10 +285,13 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
     const filteredVoters = useMemo(() => {
         let result = voters;
 
-        // Apply card number filter first (exact match)
+        // Apply card number filter first (exact match with zero-padding normalization)
         if (filterCardNumber.trim()) {
-            const cardSearch = filterCardNumber.toLowerCase().trim();
-            result = result.filter(v => v.voterCardNumber?.toLowerCase() === cardSearch);
+            const cardSearch = filterCardNumber.trim().replace(/^0+/, '') || '0';
+            result = result.filter(v => {
+                const stored = String(v.voterCardNumber || '').replace(/^0+/, '') || '0';
+                return stored === cardSearch;
+            });
         }
 
         // Then apply search term (debounced)
@@ -297,8 +300,11 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
             result = result.filter(v => {
                 const nameMatch = v.name.toLowerCase().includes(search);
                 const cccdMatch = v.cccd?.includes(search);
-                // Card number uses EXACT match per user requirement
-                const cardMatch = v.voterCardNumber?.toLowerCase() === search;
+                // Card number: exact match with zero-normalization, only when input is purely numeric
+                const isNumericSearch = /^\d+$/.test(search);
+                const numericSearch = search.replace(/^0+/, '') || '0';
+                const storedCard = String(v.voterCardNumber || '').replace(/^0+/, '') || '0';
+                const cardMatch = isNumericSearch && storedCard === numericSearch;
                 const addressMatch = v.address?.toLowerCase().includes(search) ||
                     v.permanentAddress?.toLowerCase().includes(search) ||
                     v.temporaryAddress?.toLowerCase().includes(search);
