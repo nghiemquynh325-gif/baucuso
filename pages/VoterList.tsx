@@ -285,10 +285,10 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
     const filteredVoters = useMemo(() => {
         let result = voters;
 
-        // Apply card number filter first
+        // Apply card number filter first (exact match)
         if (filterCardNumber.trim()) {
             const cardSearch = filterCardNumber.toLowerCase().trim();
-            result = result.filter(v => v.voterCardNumber?.toLowerCase().includes(cardSearch));
+            result = result.filter(v => v.voterCardNumber?.toLowerCase() === cardSearch);
         }
 
         // Then apply search term (debounced)
@@ -297,7 +297,8 @@ export const VoterList: React.FC<VoterListProps> = ({ onImportClick, isLargeText
             result = result.filter(v => {
                 const nameMatch = v.name.toLowerCase().includes(search);
                 const cccdMatch = v.cccd?.includes(search);
-                const cardMatch = v.voterCardNumber?.toLowerCase().includes(search);
+                // Card number uses EXACT match per user requirement
+                const cardMatch = v.voterCardNumber?.toLowerCase() === search;
                 const addressMatch = v.address?.toLowerCase().includes(search) ||
                     v.permanentAddress?.toLowerCase().includes(search) ||
                     v.temporaryAddress?.toLowerCase().includes(search);
