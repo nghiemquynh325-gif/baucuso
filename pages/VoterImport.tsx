@@ -202,46 +202,45 @@ export const VoterImport: React.FC<VoterImportProps> = ({ onBack, isLargeText })
         if (trimmedLine.includes('\t')) {
           const cols = trimmedLine.split('\t').map(c => c.trim());
           if (cols.length >= 7) {
-            // Cấu trúc chuẩn (xác minh qua diagnostic):
-            // 0: STT | 1: Số thẻ | 2: Họ tên | 3: Ngày sinh | 4: Nam | 5: Nữ | 6: CCCD | 7: Dân tộc | 
-            // 8: Thường trú | 9: Tạm trú | 10: Nơi ở hiện tại | 11: QH | 12: Tỉnh | 13: Phường | 14: Ghi chú
+            // Cấu trúc chuẩn từ file Excel KVBP19 (15 cột):
+            // 0: Số thẻ (STT) | 1: Họ tên | 2: Ngày sinh | 3: Nam | 4: Nữ | 5: CCCD | 6: Dân tộc
+            // 7: Thường trú | 8: Tạm trú | 9: Nơi ở hiện tại | 10: KVBP
+            // 11: Bầu QH | 12: Bầu TP | 13: Bầu P | 14: Ghi chú
 
-            const voterCardNo = cols[1] || cols[0];
-            const name = (cols[2] || '').toUpperCase();
-            const dob = cols[3] || '';
-            const isFemale = (cols[5] && cols[5].toLowerCase() === 'x');
+            const voterCardNo = cols[0]; // Số thẻ cử tri = STT
+            const name = (cols[1] || '').toUpperCase();
+            const dob = cols[2] || '';
+            const isFemale = (cols[4] && cols[4].toLowerCase() === 'x');
             const gender = isFemale ? 'Nữ' : 'Nam';
-            const cccd = cols[6] || `MISSING_${Date.now()}_${index}`;
-            const ethnic = cols[7] || 'Kinh';
+            const cccd = cols[5] || `MISSING_${Date.now()}_${index}`;
+            const ethnic = cols[6] || 'Kinh';
 
-            const permanentAddress = cols[8] || '';
-            const temporaryAddress = cols[9] || cols[10] || '';
-            const address = temporaryAddress || permanentAddress || 'CHƯA XÁC ĐỊNH';
+            const permanentAddress = cols[7] || '';
+            const temporaryAddress = cols[8] || '';
+            const currentAddress = cols[9] || '';
+            const address = temporaryAddress || currentAddress || permanentAddress || 'CHƯA XÁC ĐỊNH';
             const residenceStatus = temporaryAddress ? 'tam-tru' : 'thuong-tru';
 
-            // Nhận diện KVBP: Trong file này không thấy cột KVBP riêng lẻ, dùng header mặc định
+            // KVBP từ cột 10
             let rowAreaId = currentDetectedAreaId;
-            let flagStartIdx = 11;
-
-            // MỚI: Kiểm tra nếu cột 11 là KVBP (như trong KVBP22.xlsx)
-            if (cols[11] && /KV\s*\d+/i.test(cols[11])) {
-              rowAreaId = cols[11].toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
-              flagStartIdx = 12; // Các cột bầu cử dịch sang 12, 13, 14
+            if (cols[10] && /KV\s*\d+/i.test(cols[10])) {
+              rowAreaId = cols[10].toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
             }
 
-            const isNo = (val: string | undefined) => {
+            // Quyền bầu cử: cột 11 (QH), 12 (TP), 13 (P)
+            const isYes = (val: string | undefined) => {
               if (!val) return false;
               const v = val.toLowerCase().trim();
-              return v === 'o' || v === '0';
+              return v === 'x';
             };
 
-            const vQH = !isNo(cols[flagStartIdx]);
-            const vT = !isNo(cols[flagStartIdx + 1]);
-            const vP = !isNo(cols[flagStartIdx + 2]);
+            const vQH = isYes(cols[11]);
+            const vT = isYes(cols[12]);
+            const vP = isYes(cols[13]);
 
             if (index < 10) {
-              addLog(`LOG: Dòng ${index + 1}: ${name} | KV: ${rowAreaId} | Flags Start: ${flagStartIdx} | QH:[${cols[flagStartIdx] || ''}] T:[${cols[flagStartIdx + 1] || ''}] P:[${cols[flagStartIdx + 2] || ''}]`, 'info');
-              addLog(`--> Kết quả: QH=${vQH}, T=${vT}, P=${vP}`, 'info');
+              addLog(`LOG: Dòng ${index + 1}: ${name} | KV: ${rowAreaId} | QH:[${cols[11] || ''}] TP:[${cols[12] || ''}] P:[${cols[13] || ''}]`, 'info');
+              addLog(`--> Kết quả: QH=${vQH}, TP=${vT}, P=${vP}`, 'info');
             }
 
             // Trích xuất Tổ từ địa chỉ
@@ -453,7 +452,7 @@ export const VoterImport: React.FC<VoterImportProps> = ({ onBack, isLargeText })
         const stt = sttMatch ? sttMatch[0] : '0';
 
         // Dò tìm quyền bầu cử (Tìm x/o ở các cột cuối)
-        let vQH = true, vT = true, vP = true;
+        let vQH = false, vT = false, vP = false; // Mặc định không được bầu nếu không có 'x'
 
         // Ưu tiên tách cột bằng 2+ spaces
         const parts = trimmedLine.split(/\s{2,}/).map(p => p.trim());
@@ -462,19 +461,19 @@ export const VoterImport: React.FC<VoterImportProps> = ({ onBack, isLargeText })
           const pVal = parts[lastIdx - 1]?.toLowerCase();
           const tVal = parts[lastIdx - 2]?.toLowerCase();
           const qhVal = parts[lastIdx - 3]?.toLowerCase();
-          if (pVal === 'x' || pVal === 'o') vP = pVal !== 'o';
-          if (tVal === 'x' || tVal === 'o') vT = tVal !== 'o';
-          if (qhVal === 'x' || qhVal === 'o') vQH = qhVal !== 'o';
+          if (pVal === 'x') vP = true;
+          if (tVal === 'x') vT = true;
+          if (qhVal === 'x') vQH = true;
         } else {
-          // Robust Fallback: Lấy các token cuối cùng của dòng và kiểm tra x/o
+          // Robust Fallback: Lấy các token cuối cùng của dòng và kiểm tra x
           const tokens = trimmedLine.split(/\s+/).filter(t => t.length > 0);
           const lastTokens = tokens.slice(-5); // Lấy tối đa 5 token cuối
           let flagsFound = [];
           // Đi ngược từ cuối lên
           for (let i = lastTokens.length - 1; i >= 0 && flagsFound.length < 3; i--) {
             const val = lastTokens[i].toLowerCase();
-            if (val === 'x' || val === 'o') {
-              flagsFound.push(val !== 'o');
+            if (val === 'x') {
+              flagsFound.push(true);
             }
           }
           // Mapping: Token cuối là P, kế cuối là T, kế tiếp là QH
